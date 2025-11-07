@@ -9,9 +9,14 @@ import tools as tools
 import configuration as cfg
 
 
-def predict_n(model, images_path, labels_path, threshold, n_sample=5, outputs_path="results/"):
-    images = os.listdir(images_path)
-    rd_ix = np.random.randint(0, len(images) - 1, n_sample)
+def predict_n(model, images_path, labels_path, threshold, outputs_path, n_sample=5):
+    images = [f for f in os.listdir(images_path)]
+    if len(images) == 0:
+        print("No images found in", images_path)
+        return
+
+    n_sample = min(n_sample, len(images))
+    rd_ix = np.random.choice(len(images), size=n_sample, replace=False)
 
     if not os.path.exists(outputs_path):
         os.makedirs(outputs_path)
@@ -44,11 +49,12 @@ def predict_n(model, images_path, labels_path, threshold, n_sample=5, outputs_pa
         axs[1].axis('off')
 
         plt.tight_layout()
-        plt.savefig(f"{outputs_path}/comparison_{image_name}")
+        plt.savefig(os.path.join(outputs_path, f"comparison_{image_name}"))
         plt.close(fig)  # Close the figure to free memory
 
+
 def predict_all(model, images_path, labels_path, output_csv_path, threshold):
-    images = os.listdir(images_path)
+    images = [f for f in os.listdir(images_path)]
     nb_images = len(images)
     all_results = []
 
@@ -57,15 +63,15 @@ def predict_all(model, images_path, labels_path, output_csv_path, threshold):
         image_path = os.path.join(images_path, image_name)
         labels = tools.load_annot_file(label_sample)
 
-        # Charger l'image pour la prédiction
+        # Load image only when needed by tools.process_true_labels
         results = model([image_path], conf=threshold, verbose=False)
         result = results[0]
         pred_boxes_processed = tools.process_pred_boxes(result.boxes)
 
-        # Cas 1: Image SANS annotation (fichier vide)
+        # Case 1: NO annotation
         if len(labels) == 0:
             if len(pred_boxes_processed) == 0:
-                # Vrai négatif (TN)
+                # True negative (TN)
                 all_results.append({
                     "image_name": image_name,
                     "true_class": None,
@@ -80,7 +86,7 @@ def predict_all(model, images_path, labels_path, output_csv_path, threshold):
                     "dice": None
                 })
             else:
-                # Faux positif (FP)
+                # False positive (FP) - keep first prediction for current logic
                 all_results.append({
                     "image_name": image_name,
                     "true_class": None,
@@ -94,14 +100,14 @@ def predict_all(model, images_path, labels_path, output_csv_path, threshold):
                     "iou": None,
                     "dice": None
                 })
-        # Cas 2: Image AVEC annotation
+        # Case 2: WITH annotation
         else:
             true_label = tools.process_true_labels(cv2.imread(image_path), labels[0])
             true_class = true_label[4]
             true_bbox = true_label[:4]
 
             if len(pred_boxes_processed) == 0:
-                # Faux négatif (FN)
+                # False negative (FN)
                 all_results.append({
                     "image_name": image_name,
                     "true_class": true_class,
@@ -116,7 +122,7 @@ def predict_all(model, images_path, labels_path, output_csv_path, threshold):
                     "dice": 0.0
                 })
             else:
-                # Calcul des métriques si prédiction présente
+                # Compute metrics for the first prediction (current behavior)
                 pred_class = pred_boxes_processed[0]["class"]
                 pred_bbox = pred_boxes_processed[0]["predicted_boxes"]
                 iou = tools.compute_iou(true_bbox, pred_bbox)
@@ -135,7 +141,7 @@ def predict_all(model, images_path, labels_path, output_csv_path, threshold):
                     "dice": dice
                 })
 
-        if (i+1) % 100 == 0:
+        if (i + 1) % 100 == 0:
             print(f"Processed {i+1} / {nb_images} images.")
 
     df_results = pd.DataFrame(all_results)
@@ -144,55 +150,62 @@ def predict_all(model, images_path, labels_path, output_csv_path, threshold):
 
 
 if __name__ == "__main__":
-    # model = YOLO(cfg.BEST_MODEL_WEIGHT)  # Load a pretrained YOLO model
-    model_basename = "bs4_100"
-    model = YOLO(cfg.MODEL_WEIGHTS[model_basename])
-
-    base_path = cfg.YOLO_V11_PATH
-    images_test_path = os.path.join(base_path, "images", "test")
-    labels_test_path = os.path.join(base_path, "labels", "test")
-
-    output_dir = "results"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
+    model_basenames = [
+        "best",
+        "bs4_100",
+        "bs4_200"
+    ]
+    output_dir = cfg.RESULT_DIR
     conf_thresholds = [0.25, 0.5, 0.75, 0.95]
     ious_threshold = [0.5, 0.75, 0.95]
 
-    for conf_threshold in conf_thresholds:
-        print(f"Evaluating at confidence threshold: {conf_threshold}")
-        conf_name = int(conf_threshold*100)
-        conf_path = os.path.join(output_dir, f"{model_basename}_conf_{conf_name}")
-        if not os.path.exists(conf_path):
-            os.makedirs(conf_path)
+    for model_basename in model_basenames:
+        print(f"\n\nEvaluating model: {model_basename}\n")
 
-        plot_conf_path = os.path.join(conf_path, "plots")
-        if not os.path.exists(plot_conf_path):
-            os.makedirs(plot_conf_path)
+        model = YOLO(cfg.MODEL_WEIGHTS[model_basename])
 
-        nb_sample = 5
-        # predict_n(model, images_test_path, labels_test_path, conf_threshold, n_sample=nb_sample, outputs_path=plot_conf_path)
+        base_path = cfg.YOLO_V11_PATH
+        images_test_path = os.path.join(base_path, 'images', 'test')
+        labels_test_path = os.path.join(base_path, 'labels', 'test')
 
-        for iou_threshold in ious_threshold:
-            iou_name = int(iou_threshold*100)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
-            csv_name = f"{model_basename}_prediction_results_conf_{conf_name}_iou_{iou_name}.csv"
-            csv_path = os.path.join(conf_path, csv_name)
+        for conf_threshold in conf_thresholds:
+            print(f"Evaluating at confidence threshold: {conf_threshold}")
+            conf_name = int(conf_threshold * 100)
+            conf_path = os.path.join(output_dir, f"{model_basename}_conf_{conf_name}")
+            if not os.path.exists(conf_path):
+                os.makedirs(conf_path)
 
-            if os.path.exists(csv_path):
-                results = tools.load_and_convert_csv(csv_path)
-            else:
-                results = predict_all(model, images_test_path, labels_test_path, csv_path, conf_threshold)
+            plot_conf_path = os.path.join(conf_path, "plots")
+            if not os.path.exists(plot_conf_path):
+                os.makedirs(plot_conf_path)
 
-            if results.empty:
-                print(f"No predictions were made at confidence {conf_threshold} and IoU {iou_threshold}.")
-                continue
+            nb_sample = 5
+            predict_n(model, images_test_path, labels_test_path, conf_threshold, n_sample=nb_sample, outputs_path=plot_conf_path)
 
-            metrics = tools.calculate_all_metrics(results)
+            for iou_threshold in ious_threshold:
+                iou_name = int(iou_threshold * 100)
 
-            print("*"*75)
-            print(f"\tMetrics at IoU threshold: {iou_threshold}")
-            tools.display_metrics(metrics)
-            print("*"*75)
+                csv_name = f"{model_basename}_prediction_results_conf_{conf_name}_iou_{iou_name}.csv"
+                csv_path = os.path.join(conf_path, csv_name)
 
-    print("\nCompute metrics accross all CSV files\n")
+                if os.path.exists(csv_path):
+                    results = tools.load_and_convert_csv(csv_path)
+                else:
+                    results = predict_all(model, images_test_path, labels_test_path, csv_path, conf_threshold)
+
+                if results.empty:
+                    print(f"No predictions were made at confidence {conf_threshold} and IoU {iou_threshold}.")
+                    continue
+
+                # Pass the current IoU and confidence thresholds so metrics reflect the intended evaluation
+                metrics = tools.calculate_all_metrics(results, iou_threshold=iou_threshold, conf_threshold=conf_threshold)
+
+                print("*" * 75)
+                print(f"\tMetrics at IoU threshold: {iou_threshold}")
+                tools.display_metrics(metrics)
+                print("*" * 75)
+
+        print("\nCompute metrics accross all CSV files\n")

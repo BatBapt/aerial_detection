@@ -290,52 +290,6 @@ def calculate_all_metrics(df, iou_threshold=0.95, conf_threshold=0.5):
     return metrics
 
 
-def calculate_all_metrics(df, iou_threshold=0.95, conf_threshold=0.5):
-    # Aggregate per-class and global metrics from the computed TP/FP/FN/TN and IoU lists
-    tp, fp, fn, tn, iou_scores = calculate_tp_fp_fn_tn(df, iou_threshold, conf_threshold)
-    metrics = {}
-
-    # Collect all class ids present in any of the counters
-    all_classes = set(tp.keys()).union(set(fp.keys())).union(set(fn.keys()))
-    for class_id in all_classes:
-        tp_class = tp.get(class_id, 0)
-        fp_class = fp.get(class_id, 0)
-        fn_class = fn.get(class_id, 0)
-        tn_class = tn.get('background', 0)  # TN is treated as global background count
-        precision, recall, f1, accuracy = calculate_metrics(tp_class, fp_class, fn_class, tn_class, class_id)
-        metrics[class_id] = {
-            'precision': precision,
-            'recall': recall,
-            'f1': f1,
-            'accuracy': accuracy,
-            'iou_mean': np.mean(iou_scores.get(class_id, [])) if iou_scores.get(class_id, []) else 0,
-            'tp': tp_class,
-            'fp': fp_class,
-            'fn': fn_class,
-            'tn': tn_class,
-        }
-
-    # Global totals across classes
-    tp_total = sum(tp.values())
-    fp_total = sum(fp.values())
-    fn_total = sum(fn.values())
-    tn_total = tn.get('background', 0)
-    precision_total, recall_total, f1_total, accuracy_total = calculate_metrics(tp_total, fp_total, fn_total, tn_total, 'total')
-    metrics['total'] = {
-        'precision': precision_total,
-        'recall': recall_total,
-        'f1': f1_total,
-        'accuracy': accuracy_total,
-        'iou_mean': np.mean([iou for scores in iou_scores.values() for iou in scores]) if iou_scores else 0,
-        'tp': tp_total,
-        'fp': fp_total,
-        'fn': fn_total,
-        'tn': tn_total,
-    }
-
-    return metrics
-
-
 def display_metrics(metrics):
     # Pretty-print metrics per-class and the overall totals
     for class_id, metric in metrics.items():
