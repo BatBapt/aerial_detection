@@ -126,4 +126,4 @@ Here you will find the results of the model training and evaluation. The metrics
 
 Stay tuned for more updates and happy detecting! 🚁✈️🛩️
 
-<small>This project was enhanced with the help of my Mistral AI Agent.</small>
+<small>This file was enhanced with the help of my Mistral AI Agent.</small>
