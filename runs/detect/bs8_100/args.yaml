@@ -13,7 +13,7 @@ cache: false
 device: '0'
 workers: 4
 project: null
-name: best_model
+name: bs8_100
 exist_ok: false
 pretrained: true
 optimizer: auto

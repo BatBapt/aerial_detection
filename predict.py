@@ -151,7 +151,7 @@ def predict_all(model, images_path, labels_path, output_csv_path, threshold):
 
 if __name__ == "__main__":
     model_basenames = [
-        "best",
+        "bs8_100",
         "bs4_100",
         "bs4_200"
     ]

@@ -80,9 +80,16 @@ To get started with this project, follow these steps:
    ```
 
 ## 📊 Training plots
-Here you will find training plots such as loss curves, precision-recall curves, and other relevant visualizations. The user will add plots generated during the training and evaluation process.
+Here you will find training plots such as loss curves, precision-recall curves, and other relevant visualizations generated during the training process.
 
-![](runs/detect/best_model/results.png "Training results for the best model")
+### Training Results for the Best Model
+![](runs/detect/bs8_100/results.png "Training results for the best model")
+
+### Training Results for the BS4_100 Model
+![](runs/detect/bs4_100/results.png "Training results for the BS4_100 model")
+
+### Training Results for the BS4_200 Model
+![](runs/detect/bs4_200/results.png "Training results for the BS4_200 model")
 
 ## 📊 Results
 Here you will find the results of the model training and evaluation. The user will add plots for training time, precision, recall, dice score, etc.

@@ -9,8 +9,7 @@ RESULT_DIR = "results"
 
 BASE_TRAINING_PATH = "runs/detect"
 MODEL_WEIGHTS = {
-    "best": os.path.join(BASE_TRAINING_PATH, "best_model/weights/best.pt"),  # bs8_100
-    "bs4_50": os.path.join(BASE_TRAINING_PATH, "bs4_50/weights/best.pt"),
+    "bs8_100": os.path.join(BASE_TRAINING_PATH, "bs8_100/weights/best.pt"),
     "bs4_100": os.path.join(BASE_TRAINING_PATH, "bs4_100/weights/best.pt"),
     "bs4_200": os.path.join(BASE_TRAINING_PATH, "bs4_200/weights/best.pt"),
 }
