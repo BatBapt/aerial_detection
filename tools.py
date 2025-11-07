@@ -153,60 +153,141 @@ def load_and_convert_csv(csv_path):
 
 
 def calculate_tp_fp_fn_tn(df, iou_threshold=0.95, conf_threshold=0.5):
-    # Calculate per-class TP/FP/FN and global TN using DataFrame with ground truths and predictions.
+    """
+    Vectorized, per-row evaluation:
+    - TP: true present AND pred present (confidence >= conf_threshold) AND same class AND IoU >= iou_threshold
+    - FP: pred present (confidence >= conf_threshold) AND NOT TP
+    - FN: true present AND NOT TP
+    - TN: neither true nor pred present (pred also must be below conf_threshold)
+    Returns per-class TP/FP/FN dicts, a global TN count under key 'background', and iou lists per class for TP matches.
+    """
+    # Ensure working on a copy to avoid modifying caller dataframe
+    df_work = df.copy()
+
+    # Normalize None-like values to pandas NaN for straightforward masks
+    df_work['true_class'] = df_work['true_class'].where(pd.notna(df_work['true_class']), np.nan)
+    df_work['predicted_class'] = df_work['predicted_class'].where(pd.notna(df_work['predicted_class']), np.nan)
+    df_work['predicted_bbox'] = df_work['predicted_bbox'].where(pd.notna(df_work['predicted_bbox']), None)
+    df_work['true_bbox'] = df_work['true_bbox'].where(pd.notna(df_work['true_bbox']), None)
+
+    # Boolean masks
+    pred_mask = (df_work['confidence'] >= conf_threshold) & df_work['predicted_bbox'].notna()
+    true_mask = df_work['true_class'].notna()
+
+    # Rows where both a true and a (confident) prediction exist
+    both_mask = pred_mask & true_mask
+
+    # Compute IoUs only for rows where both exist
+    iou_values = np.zeros(len(df_work), dtype=float)
+    if both_mask.any():
+        # faster row-wise computation with list comprehension for only necessary rows
+        idxs = np.flatnonzero(both_mask.values)
+        ious_list = [
+            compute_iou(df_work.iloc[i]['true_bbox'], df_work.iloc[i]['predicted_bbox'])
+            for i in idxs
+        ]
+        iou_values[idxs] = ious_list
+
+    # Attach iou_values into df_work for easy masking
+    df_work = df_work.assign(_iou_calc=iou_values)
+
+    # True Positive mask: both present AND class match AND iou >= threshold
+    tp_mask = both_mask & (df_work['true_class'] == df_work['predicted_class']) & (df_work['_iou_calc'] >= iou_threshold)
+
+    # False Positive mask: prediction present (above conf) but not TP
+    fp_mask = pred_mask & (~tp_mask)
+
+    # False Negative mask: true present but not TP
+    fn_mask = true_mask & (~tp_mask)
+
+    # True Negative mask: no true and no confident prediction
+    tn_mask = (~true_mask) & (~pred_mask)
+
+    # Aggregate counts per class
     true_positives = defaultdict(int)
     false_positives = defaultdict(int)
     false_negatives = defaultdict(int)
-    true_negatives = defaultdict(int)
     iou_scores = defaultdict(list)
 
-    # Keep only predictions above confidence threshold
-    df_filtered = df[df['confidence'] >= conf_threshold]
+    # Collect classes from both true and predicted columns (drop NaN)
+    classes = set(pd.concat([df_work['true_class'].dropna().astype(int), df_work['predicted_class'].dropna().astype(int)]).unique())
 
-    matched_true_indices = set()
-    matched_pred_indices = set()
+    for cls in classes:
+        cls = int(cls)
+        true_positives[cls] = int(np.sum(tp_mask & (df_work['true_class'] == cls)))
+        false_positives[cls] = int(np.sum(fp_mask & (df_work['predicted_class'] == cls)))
+        false_negatives[cls] = int(np.sum(fn_mask & (df_work['true_class'] == cls)))
+        # iou list only for TP rows of that class
+        if cls in true_positives and true_positives[cls] > 0:
+            iou_scores[cls] = df_work.loc[tp_mask & (df_work['true_class'] == cls), '_iou_calc'].tolist()
+        else:
+            iou_scores[cls] = []
 
-    # For each ground-truth row, try to find a matching prediction in the same row index
-    for i, true_row in df[df['true_class'].notna()].iterrows():
-        for j, pred_row in df_filtered.iterrows():
-            if j in matched_pred_indices:
-                continue
-            if i == j:
-                # Compute IoU between true and predicted boxes for same image/row
-                iou = compute_iou(true_row['true_bbox'], pred_row['predicted_bbox'])
-                # Match if IoU and class match the thresholds/labels
-                if iou >= iou_threshold and true_row['true_class'] == pred_row['predicted_class']:
-                    true_positives[true_row['true_class']] += 1
-                    matched_true_indices.add(i)
-                    matched_pred_indices.add(j)
-                    iou_scores[true_row['true_class']].append(iou)
-                    break
-
-    # Any ground-truth not matched is a false negative
-    for i, true_row in df[df['true_class'].notna()].iterrows():
-        if i not in matched_true_indices:
-            false_negatives[true_row['true_class']] += 1
-
-    # Predicted boxes not matched count as false positives
-    for j, pred_row in df_filtered.iterrows():
-        if j not in matched_pred_indices:
-            false_positives[pred_row['predicted_class']] += 1
-
-    # True negatives: images without annotation and without any prediction
-    for i, row in df[df['true_class'].isna()].iterrows():
-        if pd.isna(row['predicted_class']):
-            true_negatives['background'] += 1
+    # True negatives treated as global 'background'
+    true_negatives = {'background': int(tn_mask.sum())}
 
     return true_positives, false_positives, false_negatives, true_negatives, iou_scores
 
+def calculate_all_metrics(df, iou_threshold=0.95, conf_threshold=0.5):
+    """
+    Build per-class metrics and overall totals using vectorized counts returned by calculate_tp_fp_fn_tn.
+    """
+    tp, fp, fn, tn, iou_scores = calculate_tp_fp_fn_tn(df, iou_threshold=iou_threshold, conf_threshold=conf_threshold)
+    metrics = {}
 
-def calculate_metrics(tp, fp, fn, tn, class_id):
-    # Compute precision, recall, F1 and accuracy with safety checks for zero divisions
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-    accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
-    return precision, recall, f1, accuracy
+    # Gather all classes seen
+    all_classes = set(tp.keys()).union(fp.keys()).union(fn.keys())
+
+    for class_id in sorted(all_classes):
+        tp_c = tp.get(class_id, 0)
+        fp_c = fp.get(class_id, 0)
+        fn_c = fn.get(class_id, 0)
+        tn_c = tn.get('background', 0)
+
+        precision = tp_c / (tp_c + fp_c) if (tp_c + fp_c) > 0 else 0.0
+        recall = tp_c / (tp_c + fn_c) if (tp_c + fn_c) > 0 else 0.0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        accuracy = (tp_c + tn_c) / (tp_c + tn_c + fp_c + fn_c) if (tp_c + tn_c + fp_c + fn_c) > 0 else 0.0
+        iou_mean = float(np.mean(iou_scores.get(class_id, []))) if iou_scores.get(class_id, []) else 0.0
+
+        metrics[class_id] = {
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'accuracy': accuracy,
+            'iou_mean': iou_mean,
+            'tp': tp_c,
+            'fp': fp_c,
+            'fn': fn_c,
+            'tn': tn_c,
+        }
+
+    # Totals across all classes
+    tp_total = sum(tp.values())
+    fp_total = sum(fp.values())
+    fn_total = sum(fn.values())
+    tn_total = tn.get('background', 0)
+
+    precision_total = tp_total / (tp_total + fp_total) if (tp_total + fp_total) > 0 else 0.0
+    recall_total = tp_total / (tp_total + fn_total) if (tp_total + fn_total) > 0 else 0.0
+    f1_total = 2 * (precision_total * recall_total) / (precision_total + recall_total) if (precision_total + recall_total) > 0 else 0.0
+    accuracy_total = (tp_total + tn_total) / (tp_total + tn_total + fp_total + fn_total) if (tp_total + tn_total + fp_total + fn_total) > 0 else 0.0
+    all_ious = [iou for lst in iou_scores.values() for iou in lst]
+    iou_mean_total = float(np.mean(all_ious)) if all_ious else 0.0
+
+    metrics['total'] = {
+        'precision': precision_total,
+        'recall': recall_total,
+        'f1': f1_total,
+        'accuracy': accuracy_total,
+        'iou_mean': iou_mean_total,
+        'tp': tp_total,
+        'fp': fp_total,
+        'fn': fn_total,
+        'tn': tn_total,
+    }
+
+    return metrics
 
 
 def calculate_all_metrics(df, iou_threshold=0.95, conf_threshold=0.5):
