@@ -11,7 +11,16 @@ Welcome to the Drone Detection project using YOLO11! This project aims to detect
 - [Additional Recommendations](#-additional-recommendations)
 
 ## 📝 Project Description
-This project focuses on detecting various types of aerial vehicles (Airplanes, Drones, Helicopters) using the YOLO11 model. The dataset used for training and testing can be found [here](https://www.kaggle.com/datasets/cybersimar08/drone-detection/data).
+This project focuses on detecting various types of aerial vehicles (Airplanes, Drones, Helicopters) using the [YOLO11](https://docs.ultralytics.com/fr/models/yolo11/) model. 
+The dataset used for training and testing can be found [here](https://www.kaggle.com/datasets/cybersimar08/drone-detection/data).
+
+I used an NVIDIA GeForce RTX 4060 with 8GB to train the models resulting in ~5min/epoch training time.
+
+So far, three model configurations were tested:
+- **bs8_100**: Batch Size 8, 100 epochs
+- **bs4_100**: Batch Size 4, 100 epochs
+- **bs4_200**: Batch Size 4, 200 epochs
+
 
 ## 📂 Files
 
@@ -58,7 +67,8 @@ To get started with this project, follow these steps:
 5. **Train the Model:**
    Use the `train_model.py` script to train the YOLO11 model on the prepared dataset.
    The first time you call the script, it will download the pre-trained weights for YOLO11:
-   ```
+   Update the script to play with the parameters such as batch size and number of epochs as needed.
+6. ```
    $ python train_model.py
    ```
    
@@ -107,7 +117,7 @@ Here you will find the results of the model training and evaluation. The metrics
 
 ### 🏆 Conclusion
 
-**Best Model: best (IoU=0.5 or 0.75) 🌟**
+**Best Model: bs8_100 (IoU=0.5 or 0.75) 🌟**
 - **Why?**
   - Highest F1-score and IoU at all confidence thresholds. 📈
   - Superior recall and accuracy, especially at low/medium thresholds. 🎯
